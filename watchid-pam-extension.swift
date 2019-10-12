@@ -14,6 +14,10 @@ public typealias pam_handler_t = UnsafeRawPointer
 
 @_silgen_name("pam_sm_authenticate")
 public func pam_sm_authenticate(pamh: pam_handler_t, flags: Int, argc: Int, argv: vchar) -> Int {
+    if (ProcessInfo.processInfo.environment["SSH_TTY"] != nil) {
+        return PAM_IGNORE;
+    }
+    
     let sudoArguments = ProcessInfo.processInfo.arguments
     if sudoArguments.contains("-A") || sudoArguments.contains("--askpass") {
         return PAM_IGNORE

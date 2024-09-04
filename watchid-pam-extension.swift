@@ -2,28 +2,28 @@ import LocalAuthentication
 
 // MARK: (Re)define PAM constants here so we don't need to import .h files.
 
-private let PAM_SUCCESS = 0
-private let PAM_AUTH_ERR = 9
-private let PAM_IGNORE = 25
+private let PAM_SUCCESS = CInt(0)
+private let PAM_AUTH_ERR = CInt(9)
+private let PAM_IGNORE = CInt(25)
+private let PAM_SILENT = CInt(bitPattern: 0x80000000)
 private let DEFAULT_REASON = "perform an action that requires authentication"
 
-public typealias vchar = UnsafeMutablePointer<UnsafeMutablePointer<Int8>>
-public typealias pam_handler_t = UnsafeRawPointer
+public typealias vchar = UnsafePointer<UnsafeMutablePointer<CChar>>
+public typealias pam_handle_t = UnsafeRawPointer?
 
 // MARK: Biometric (touchID) authentication
 
-@_silgen_name("pam_sm_authenticate")
-public func pam_sm_authenticate(pamh: pam_handler_t, flags: Int, argc: Int, argv: vchar) -> Int {
+@_cdecl("pam_sm_authenticate")
+public func pam_sm_authenticate(pamh: pam_handle_t, flags: CInt, argc: CInt, argv: vchar) -> CInt {
     if (ProcessInfo.processInfo.environment["SSH_TTY"] != nil) {
         return PAM_IGNORE;
     }
-    
     let sudoArguments = ProcessInfo.processInfo.arguments
     if sudoArguments.contains("-A") || sudoArguments.contains("--askpass") {
         return PAM_IGNORE
     }
 
-    let arguments = parseArguments(argc: argc, argv: argv)
+    let arguments = parseArguments(argc: Int(argc), argv: argv)
     var reason = arguments["reason"] ?? DEFAULT_REASON
     reason = reason.isEmpty ? DEFAULT_REASON : reason
 
@@ -40,7 +40,11 @@ public func pam_sm_authenticate(pamh: pam_handler_t, flags: Int, argc: Int, argv
         defer { semaphore.signal() }
 
         if let error = error {
-            fputs("\(error.localizedDescription)\n", stderr)
+            if flags & PAM_SILENT == 0 {
+                fputs("\(error.localizedDescription)\n", stderr)
+            }
+            result = PAM_IGNORE
+            return
         }
 
         result = success ? PAM_SUCCESS : PAM_AUTH_ERR
@@ -52,8 +56,8 @@ public func pam_sm_authenticate(pamh: pam_handler_t, flags: Int, argc: Int, argv
 
 private func parseArguments(argc: Int, argv: vchar) -> [String: String] {
     var parsed = [String: String]()
-    let arguments = (0 ..< argc)
-       .map { String(cString: argv[$0]) }
+    let arguments = UnsafeBufferPointer(start: argv, count: argc)
+       .compactMap { String(cString: $0) }
        .joined(separator: " ")
 
     let regex = try? NSRegularExpression(pattern: "[^\\s\"']+|\"([^\"]*)\"|'([^']*)'",
@@ -79,23 +83,27 @@ private func parseArguments(argc: Int, argv: vchar) -> [String: String] {
 
 private extension LAPolicy {
     static var deviceOwnerAuthenticationIgnoringUserID: LAPolicy {
-        return .deviceOwnerAuthenticationWithBiometricsOrWatch
+      return if #available(macOS 15, *) {
+        .deviceOwnerAuthenticationWithBiometricsOrCompanion
+      } else {
+        .deviceOwnerAuthenticationWithBiometricsOrWatch
+      }
     }
 }
 
 // MARK: - Ignored (unhandled) PAM events
 
-@_silgen_name("pam_sm_chauthtok")
-public func pam_sm_chauthtok(pamh: pam_handler_t, flags: Int, argc: Int, argv: vchar) -> Int {
+@_cdecl("pam_sm_chauthtok")
+public func pam_sm_chauthtok(pamh: pam_handle_t, flags: CInt, argc: CInt, argv: vchar) -> CInt {
     return PAM_IGNORE
 }
 
-@_silgen_name("pam_sm_setcred")
-public func pam_sm_setcred(pamh: pam_handler_t, flags: Int, argc: Int, argv: vchar) -> Int {
+@_cdecl("pam_sm_setcred")
+public func pam_sm_setcred(pamh: pam_handle_t, flags: CInt, argc: CInt, argv: vchar) -> CInt {
     return PAM_IGNORE
 }
 
-@_silgen_name("pam_sm_acct_mgmt")
-public func pam_sm_acct_mgmt(pamh: pam_handler_t, flags: Int, argc: Int, argv: vchar) -> Int {
+@_cdecl("pam_sm_acct_mgmt")
+public func pam_sm_acct_mgmt(pamh: pam_handle_t, flags: CInt, argc: CInt, argv: vchar) -> CInt {
     return PAM_IGNORE
 }

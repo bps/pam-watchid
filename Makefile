@@ -6,10 +6,16 @@ TARGET = apple-darwin$(shell uname -r)
 PAM_FILE_BASE = /etc/pam.d/sudo
 PAM_TEXT = auth sufficient $(LIBRARY_NAME)
 PAM_TID_TEXT = auth       sufficient     pam_tid.so
+DEFINES =
+MACOS_MAJOR_VER = $(shell sw_vers --productVersion | cut -d. -f1)
+COMPANION_REQUIRED_MAJOR_VER = 15
+ifeq "$(COMPANION_REQUIRED_MAJOR_VER)" "$(word 1, $(sort $(COMPANION_REQUIRED_MAJOR_VER) $(MACOS_MAJOR_VER)))"
+	DEFINES += -DHASCOMPANION
+endif
 
 all:
-	swiftc watchid-pam-extension.swift -o $(LIBRARY_PREFIX)_x86_64.so -target x86_64-$(TARGET) -emit-library
-	swiftc watchid-pam-extension.swift -o $(LIBRARY_PREFIX)_arm64.so -target arm64-$(TARGET) -emit-library
+	swiftc watchid-pam-extension.swift $(DEFINES) -o $(LIBRARY_PREFIX)_x86_64.so -target x86_64-$(TARGET) -emit-library
+	swiftc watchid-pam-extension.swift $(DEFINES) -o $(LIBRARY_PREFIX)_arm64.so -target arm64-$(TARGET) -emit-library
 	lipo -create $(LIBRARY_PREFIX)_arm64.so $(LIBRARY_PREFIX)_x86_64.so -output $(LIBRARY_NAME)
 
 install: all
